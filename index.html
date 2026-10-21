@@ -1,249 +1,422 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="UTF-8">
-<title>تقرير الأداء - FTTH Mobily</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
-<style>
-body{font-family:Arial;background:#f4f4f4;padding:20px;margin:0}
-h1,h2{text-align:center;color:#333}
-.box{background:#fff;padding:20px;border-radius:8px;margin:0 auto 20px;max-width:1200px;text-align:center;box-shadow:0 2px 4px rgba(0,0,0,.1);overflow-x:auto}
-button{background:#4CAF50;color:#fff;border:0;padding:10px 20px;border-radius:5px;cursor:pointer;font-size:14px;margin:5px}
-button:hover{background:#3d8b40}
-table{width:100%;border-collapse:collapse;margin-top:15px;font-size:12px;white-space:nowrap}
-th,td{border:1px solid #ddd;padding:6px;text-align:center}
-th{background:#f5f5f5}
-.total{background:#e8f5e9;font-weight:bold}
-.rate{background:#66BB6A;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold}
-.ldo-zero{color:#e53935;font-weight:bold}
-#loading{display:none;color:#666;margin:10px}
-</style>
+    <meta charset="UTF-8">
+    <title>FTTH-Mobily Performance Reports</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }
+        h1, h2 { text-align: center; color: #333; }
+        .box { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 25px; text-align: center; }
+        .report-container { background-color: white; padding: 15px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow-x: auto; margin-bottom: 20px; }
+        table { width: auto; border-collapse: collapse; margin-top: 15px; font-size: 12px; white-space: nowrap; margin-left: auto; margin-right: auto; }
+        table, th, td { border: 1px solid #ddd; }
+        th, td { padding: 8px; text-align: center; }
+        th { background-color: #f5f5f5; font-weight: bold; }
+        .success-rate { background: linear-gradient(to right, #66BB6A, #66BB6A var(--percentage), transparent var(--percentage), transparent); padding: 3px 6px; border-radius: 3px; display: inline-block; min-width: 40px; font-weight: bold; }
+        .total-row { background-color: #f9f9f9; font-weight: bold; }
+        .btn { background-color: #4CAF50; color: white; border: none; padding: 8px 15px; text-align: center; text-decoration: none; display: inline-block; font-size: 14px; margin: 5px; cursor: pointer; border-radius: 4px; transition: background-color 0.3s; }
+        .btn:hover { background-color: #3d8b40; }
+        .file-input { margin: 5px 0; font-size: 14px; }
+        .city-row { background-color: #1565c0; color: white; font-weight: bold; }
+        .supervisor-row { background-color: #a5d6a7; font-weight: bold; }
+        .agent-row { background-color: #fff; }
+        .zero-orders { color: #e53935; }
+        .zero-days { color: #e53935; font-weight: bold; }
+        .agent-count { font-weight: bold; opacity: 0.9; }
+        .ldo-zero { color: #e53935; font-weight: bold; }
+        .color-red { color: red; }
+        .color-green { color: green; }
+        .color-blue { color: blue; }
+        #loading { display: none; text-align: center; margin: 10px 0; color: #666; font-size: 14px; }
+    </style>
 </head>
 <body>
-<h1 id="title">تقرير الأداء - FTTH Mobily</h1>
+    <div style="max-width: 1200px; margin: 0 auto;">
+        <h1 id="main-title">FTTH-Mobily Performance Reports</h1>
+        
+        <div class="box">
+            <input type="file" id="excelFile" class="file-input" accept=".xlsx, .xls" />
+            <button id="loadBtn" class="btn">تحميل و إنشاء التقارير</button>
+            <button id="downloadBtn" class="btn" style="background-color: #0284c7;">📥 تحميل كملف HTML</button>
+            <div id="loading">⏳ جاري معالجة البيانات...</div>
+        </div>
+        
+        <div id="summaryTableContainer"></div>
+        <div id="hierarchicalTableContainer"></div>
+        <div id="companyAgentsTableContainer"></div>
+        <div id="freelancersTableContainer"></div>
+        <div id="outAgentsTableContainer"></div>
+        <div id="areaPerformanceContainer"></div>
+        <div id="dailyPerformanceContainer"></div>
+        <div id="companyPerformanceContainer"></div>
+        <div id="supervisorsTablesContainer"></div>
+    </div>
 
-<div class="box">
-  <input type="file" id="file" accept=".xlsx,.xls">
-  <button onclick="loadData()">تحميل التقرير</button>
-  <button onclick="downloadHTML()" style="background:#0284c7;">📥 تحميل كملف HTML</button>
-  <div id="loading">⏳ جاري المعالجة...</div>
-</div>
+    <script>
+        // تحويل تاريخ الإكسيل
+        const excelDateToJSDate = (serial) => {
+            if (typeof serial === 'number') {
+                const days = serial - 25569; 
+                const ms = days * 24 * 60 * 60 * 1000;
+                return new Date(ms); 
+            }
+            return new Date(serial); 
+        };
+        const formatDate = (date) => {
+            if (!date) return null;
+            const d = excelDateToJSDate(date);
+            return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+        };
 
-<div id="report"></div>
-
-<script>
-function excelDate(serial){
-  if(!serial) return null;
-  const d = new Date((serial - 25569) * 86400000);
-  return d.toISOString().split('T')[0];
-}
-
-function loadData(){
-  const f = document.getElementById('file').files[0];
-  if(!f){ alert('اختار ملف Excel الأول'); return; }
-  document.getElementById('loading').style.display='block';
-  
-  const r = new FileReader();
-  r.onload = e => {
-    try{
-      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(sheet, {header:1});
-      
-      const headers = data[0].map(h => String(h||'').trim());
-      const findCol = (name) => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-      
-      const iName = findCol('Sales Man Name');
-      const iSup = findCol('Supervisor');
-      const iStatus = findCol('SEBIL UPDATE');
-      const iDate = findCol('Date');
-      const iCity = findCol('City');
-      const iComp = findCol('Company');
-      
-      if(iName < 0 || iStatus < 0 || iDate < 0){
-        alert('مش لاقي الأعمدة الأساسية: Sales Man Name / SEBIL UPDATE / Date');
-        document.getElementById('loading').style.display='none';
-        return;
-      }
-      
-      const allDates = new Set();
-      let lastDate = '';
-      data.slice(1).forEach(r => {
-        const d = excelDate(r[iDate]);
-        if(d){ allDates.add(d); if(d > lastDate) lastDate = d; }
-      });
-      
-      const totalDays = allDates.size;
-      const supervisors = {}; 
-      const companies = {}; 
-      const cities = {}; 
-      
-      data.slice(1).forEach(r => {
-        const name = String(r[iName]||'').trim();
-        const sup = String(r[iSup]||'').trim();
-        const status = String(r[iStatus]||'').toLowerCase();
-        const date = excelDate(r[iDate]);
-        const city = String(r[iCity]||'').trim();
-        const comp = String(r[iComp]||'').trim() || 'N/A';
-        
-        if(!name || !sup) return;
-        
-        const isSuccess = status === 'applied';
-        const isLastDay = date === lastDate;
-        
-        if(!supervisors[sup]) supervisors[sup] = {success:0, fail:0, ldo:0, dates:new Set(), agents:{}};
-        supervisors[sup].dates.add(date);
-        if(isSuccess) supervisors[sup].success++; else supervisors[sup].fail++;
-        if(isLastDay) supervisors[sup].ldo++;
-        
-        if(!supervisors[sup].agents[name]) supervisors[sup].agents[name] = {success:0, fail:0, ldo:0, dates:new Set(), comp:comp};
-        supervisors[sup].agents[name].dates.add(date);
-        if(isSuccess) supervisors[sup].agents[name].success++; else supervisors[sup].agents[name].fail++;
-        if(isLastDay) supervisors[sup].agents[name].ldo++;
-        
-        if(!companies[comp]) companies[comp] = {success:0, fail:0, ldo:0};
-        if(isSuccess) companies[comp].success++; else companies[comp].fail++;
-        if(isLastDay) companies[comp].ldo++;
-        
-        if(city){
-          if(!cities[city]) cities[city] = {success:0, fail:0, ldo:0};
-          if(isSuccess) cities[city].success++; else cities[city].fail++;
-          if(isLastDay) cities[city].ldo++;
+        // دوال مساعدة للتنسيق
+        function getStyledCompanyTitleHtml(companyValue) {
+            const company = String(companyValue || '').trim();
+            const lowerCaseCompany = company.toLowerCase();
+            if (lowerCaseCompany.includes('out')) return '<span class="color-red">' + company + '</span>';
+            if (lowerCaseCompany.includes('new')) return '<span class="color-green">' + company + '</span>';
+            return company;
         }
-      });
-      
-      let html = `<div class="box"><h2>📊 ملخص عام - آخر يوم: ${lastDate} | عدد أيام العمل: ${totalDays}</h2>
-      <table>
-        <tr><th>المقياس</th><th>القيمة</th></tr>
-        <tr><td>إجمالي المشرفين</td><td>${Object.keys(supervisors).length}</td></tr>
-        <tr><td>إجمالي المندوبين</td><td>${new Set(data.slice(1).map(r=>r[iName]).filter(Boolean)).size}</td></tr>
-        <tr><td>إجمالي الطلبات</td><td>${data.length-1}</td></tr>
-        <tr><td>آخر يوم عمل</td><td>${lastDate}</td></tr>
-        <tr><td>عدد أيام العمل</td><td>${totalDays}</td></tr>
-      </table></div>`;
-      
-      html += `<div class="box"><h2>📋 تقرير المشرفين</h2><table>
-        <tr><th>#</th><th>المشرف</th><th>عدد المندوبين</th><th>نجح</th><th>فشل</th><th>الإجمالي</th><th>نسبة النجاح</th><th>أيام بدون بيع</th><th>طلبات آخر يوم (${lastDate})</th></tr>`;
-      
-      let tS=0,tF=0,tL=0, idx=1;
-      Object.entries(supervisors).sort((a,b)=>b[1].success-a[1].success).forEach(([sup,d])=>{
-        const total = d.success + d.fail;
-        const rate = total ? (d.success/total*100).toFixed(1) : '0.00';
-        const zeroDays = totalDays - d.dates.size;
-        const agentCount = Object.keys(d.agents).length;
-        tS+=d.success; tF+=d.fail; tL+=d.ldo;
-        html += `<tr>
-          <td>${idx++}</td><td>${sup}</td><td>${agentCount}</td>
-          <td>${d.success}</td><td>${d.fail}</td><td>${total}</td>
-          <td><span class="rate">${rate}%</span></td>
-          <td>${zeroDays}</td>
-          <td class="${d.ldo===0?'ldo-zero':''}">${d.ldo}</td>
-        </tr>`;
-      });
-      
-      const tT = tS+tF;
-      const tR = tT ? (tS/tT*100).toFixed(1) : '0.00';
-      html += `<tr class="total">
-        <td colspan="3">الإجمالي</td>
-        <td>${tS}</td><td>${tF}</td><td>${tT}</td>
-        <td><span class="rate">${tR}%</span></td>
-        <td>—</td><td class="${tL===0?'ldo-zero':''}">${tL}</td>
-      </tr></table></div>`;
-      
-      html += `<div class="box"><h2>🏢 تقرير الشركات</h2><table>
-        <tr><th>الشركة</th><th>نجح</th><th>فشل</th><th>الإجمالي</th><th>نسبة النجاح</th><th>آخر يوم</th></tr>`;
-      Object.entries(companies).sort((a,b)=>b[1].success-a[1].success).forEach(([comp,d])=>{
-        const total = d.success + d.fail;
-        const rate = total ? (d.success/total*100).toFixed(1) : '0.00';
-        html += `<tr><td>${comp}</td><td>${d.success}</td><td>${d.fail}</td><td>${total}</td><td><span class="rate">${rate}%</span></td><td>${d.ldo}</td></tr>`;
-      });
-      html += `</table></div>`;
-      
-      if(Object.keys(cities).length){
-        html += `<div class="box"><h2>🌍 تقرير المدن</h2><table>
-          <tr><th>المدينة</th><th>نجح</th><th>فشل</th><th>الإجمالي</th><th>نسبة النجاح</th></tr>`;
-        Object.entries(cities).sort((a,b)=>b[1].success-a[1].success).forEach(([city,d])=>{
-          const total = d.success + d.fail;
-          const rate = total ? (d.success/total*100).toFixed(1) : '0.00';
-          html += `<tr><td>${city}</td><td>${d.success}</td><td>${d.fail}</td><td>${total}</td><td><span class="rate">${rate}%</span></td></tr>`;
-        });
-        html += `</table></div>`;
-      }
-      
-      Object.entries(supervisors).sort((a,b)=>b[1].success-a[1].success).forEach(([sup,d])=>{
-        html += `<div class="box"><h2>👤 المشرف: ${sup}</h2><table>
-          <tr><th>#</th><th>المندوب</th><th>الشركة</th><th>نجح</th><th>فشل</th><th>الإجمالي</th><th>نسبة النجاح</th><th>أيام بدون بيع</th><th>آخر يوم</th></tr>`;
-        
-        let i=1;
-        Object.entries(d.agents).sort((a,b)=>b[1].success-a[1].success).forEach(([name,a])=>{
-          const total = a.success + a.fail;
-          const rate = total ? (a.success/total*100).toFixed(1) : '0.00';
-          const zeroDays = totalDays - a.dates.size;
-          html += `<tr>
-            <td>${i++}</td><td>${name}</td><td>${a.comp}</td>
-            <td>${a.success}</td><td>${a.fail}</td><td>${total}</td>
-            <td><span class="rate">${rate}%</span></td>
-            <td>${zeroDays}</td>
-            <td class="${a.ldo===0?'ldo-zero':''}">${a.ldo}</td>
-          </tr>`;
-        });
-        html += `</table></div>`;
-      });
-      
-      document.getElementById('report').innerHTML = html;
-      document.getElementById('title').textContent = `تقرير الأداء - ${lastDate}`;
-      document.getElementById('loading').style.display='none';
-      
-    }catch(err){
-      alert('خطأ: ' + err.message);
-      console.error(err);
-      document.getElementById('loading').style.display='none';
-    }
-  };
-  r.readAsArrayBuffer(f);
-}
+        function shouldIncludeAgentInTotals(company, agentName, supervisorName) {
+            const lowerCaseCompany = String(company || '').toLowerCase().trim();
+            const lowerCaseAgentName = String(agentName || '').toLowerCase().trim();
+            const lowerCaseSupervisorName = String(supervisorName || '').toLowerCase().trim();
+            return !(lowerCaseCompany.includes('out') || lowerCaseAgentName === lowerCaseSupervisorName);
+        }
+        function getAgentNameHtml(agentName, companyValue, supervisorName) {
+            let html = String(agentName || '').trim();
+            const lowerCaseCompany = (String(companyValue || '')).toLowerCase().trim();
+            const isSupervisor = (String(agentName || '')).toLowerCase().trim() === (String(supervisorName || '')).toLowerCase().trim();
+            if (lowerCaseCompany.includes('out')) { html = '<span class="color-red">' + html + '</span>'; } 
+            else if (lowerCaseCompany.includes('new')) { html = '<span class="color-green">' + html + '</span>'; }
+            if (isSupervisor) { html = '<span class="color-blue">' + html + ' (Supervisor)</span>'; }
+            return html;
+        }
 
-function downloadHTML() {
-  const reportContent = document.getElementById('report').innerHTML;
-  if (!reportContent || !reportContent.includes('<table>')) {
-    alert('من فضلك ارفع ملف الإكسيل الأول عشان تظهر التقارير!');
-    return;
-  }
-  const title = document.getElementById('title').textContent;
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <title>${title}</title>
-      <style>
-        body { font-family: Arial; background: #f4f4f4; padding: 20px; margin: 0; }
-        h1, h2 { text-align: center; color: #333; }
-        .box { background: #fff; padding: 20px; border-radius: 8px; margin: 0 auto 20px; max-width: 1200px; box-shadow: 0 2px 4px rgba(0,0,0,.1); overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; white-space: nowrap; }
-        th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
-        th { background: #f5f5f5; }
-        .total { background: #e8f5e9; font-weight: bold; }
-        .rate { background: #66BB6A; color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
-        .ldo-zero { color: #e53935; font-weight: bold; }
-      </style>
-    </head>
-    <body>
-      <h1>${title}</h1>
-      ${reportContent}
-    </body>
-    </html>
-  `;
-  const blob = new Blob([htmlContent], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'تقرير_الأداء.html';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-</script>
+        // قراءة البيانات وتجميعها
+        function processData(jsonData) {
+            const headers = jsonData[0];
+            const rows = jsonData.slice(1).filter(row => row.length > 0 && String(row[0] || '').trim() !== '');
+            
+            const getIndex = (name) => {
+                const lowerName = name.toLowerCase();
+                for (let i = 0; i < headers.length; i++) {
+                    if (String(headers[i] || '').toLowerCase().includes(lowerName)) return i;
+                }
+                return -1;
+            };
+            
+            const iCity = getIndex('City'); 
+            const iSup = getIndex('Supervisor');
+            const iName = getIndex('Sales Man Name');
+            const iStatus = getIndex('SEBIL UPDATE');
+            const iDate = getIndex('Date');
+            const iArea = getIndex('Area');
+            const iComp = getIndex('Company');
+
+            let overallLastDate = null;
+            const uniqueDates = new Set();
+            const agentAssignment = {};
+            const dataObj = { hierarchical: {}, agents: {}, areas: {}, dates: {}, supervisors: {} };
+
+            // استخراج المندوبين والتواريخ
+            rows.forEach(row => {
+                const name = String(row[iName] || '').trim();
+                const sup = String(row[iSup] || '').trim();
+                const city = String(row[iCity] || 'Unknown City').trim();
+                const comp = String(row[iComp] || '').trim();
+                const date = formatDate(row[iDate]);
+                
+                if(name && sup && !agentAssignment[name]) {
+                    agentAssignment[name] = { supervisor: sup, city: city, company: comp };
+                }
+                if(date) {
+                    uniqueDates.add(date);
+                    if(!overallLastDate || date > overallLastDate) overallLastDate = date;
+                }
+            });
+
+            const totalWorkingDays = uniqueDates.size;
+
+            // دالة تجهيز الهياكل
+            const initNode = () => ({ successful: 0, unsuccessful: 0, lastDayOrders: 0, dates: new Set(), agents: {}, agentCount: 0 });
+
+            // تجميع البيانات
+            rows.forEach(row => {
+                const name = String(row[iName] || '').trim();
+                const status = String(row[iStatus] || '').toLowerCase();
+                const date = formatDate(row[iDate]);
+                const area = String(row[iArea] || 'Unknown Area').trim();
+                
+                const assignment = agentAssignment[name];
+                if (!assignment) return;
+
+                const { supervisor, city, company } = assignment;
+                const isSuccess = status === 'applied';
+                const isLastDay = date === overallLastDate;
+
+                // 1. الهيكل الهرمي
+                if(!dataObj.hierarchical[city]) dataObj.hierarchical[city] = initNode();
+                if(!dataObj.hierarchical[city].agents[supervisor]) dataObj.hierarchical[city].agents[supervisor] = initNode();
+                if(!dataObj.hierarchical[city].agents[supervisor].agents[name]) {
+                    dataObj.hierarchical[city].agents[supervisor].agents[name] = { ...initNode(), company, sm: name, supervisorName: supervisor };
+                }
+                const c = dataObj.hierarchical[city], s = c.agents[supervisor], a = s.agents[name];
+                
+                [c, s, a].forEach(node => {
+                    if (isSuccess) node.successful++; else node.unsuccessful++;
+                    if (date) node.dates.add(date);
+                    if (isLastDay) node.lastDayOrders++;
+                });
+
+                // 2. تجميع المندوبين (للجداول المسطحة)
+                if(!dataObj.agents[name]) dataObj.agents[name] = { sm: name, supervisor, company, successful:0, unsuccessful:0, lastDayOrders:0, dates: new Set() };
+                if (isSuccess) dataObj.agents[name].successful++; else dataObj.agents[name].unsuccessful++;
+                if (date) dataObj.agents[name].dates.add(date);
+                if (isLastDay) dataObj.agents[name].lastDayOrders++;
+
+                // 3. تجميع المناطق
+                if(area) {
+                    if(!dataObj.areas[area]) dataObj.areas[area] = { successful:0, unsuccessful:0 };
+                    if (isSuccess) dataObj.areas[area].successful++; else dataObj.areas[area].unsuccessful++;
+                }
+
+                // 4. تجميع الأيام
+                if(date) {
+                    if(!dataObj.dates[date]) dataObj.dates[date] = { successful:0, unsuccessful:0 };
+                    if (isSuccess) dataObj.dates[date].successful++; else dataObj.dates[date].unsuccessful++;
+                }
+            });
+
+            // حساب عدد المندوبين
+            Object.values(dataObj.hierarchical).forEach(c => {
+                c.agentCount = 0;
+                Object.values(c.agents).forEach(s => {
+                    s.agentCount = 0;
+                    Object.values(s.agents).forEach(a => {
+                        if (shouldIncludeAgentInTotals(a.company, a.sm, a.supervisorName)) { s.agentCount++; c.agentCount++; }
+                    });
+                });
+            });
+
+            // إجماليات المشرفين
+            Object.values(dataObj.agents).forEach(a => {
+                if(!dataObj.supervisors[a.supervisor]) dataObj.supervisors[a.supervisor] = { successful:0, unsuccessful:0, lastDayOrders:0, agents:[] };
+                dataObj.supervisors[a.supervisor].successful += a.successful;
+                dataObj.supervisors[a.supervisor].unsuccessful += a.unsuccessful;
+                dataObj.supervisors[a.supervisor].lastDayOrders += a.lastDayOrders;
+                dataObj.supervisors[a.supervisor].agents.push(a);
+            });
+
+            return { dataObj, overallLastDate, totalWorkingDays, agentAssignment };
+        }
+
+        // --- دوال الرسم ---
+        function addImgBtn(section) {
+            const h2 = section.querySelector('h2');
+            if(!h2) return;
+            const btn = document.createElement('button');
+            btn.className = 'btn'; btn.style.fontSize = '11px'; btn.style.padding = '3px 6px'; btn.style.float = 'left'; btn.innerText = '📷 نسخ كصورة';
+            btn.setAttribute('data-html2canvas-ignore', 'true');
+            h2.appendChild(btn);
+        }
+
+        function renderAll(processedData) {
+            const { dataObj, overallLastDate, totalWorkingDays } = processedData;
+            const containers = ['summaryTableContainer','hierarchicalTableContainer','companyAgentsTableContainer','freelancersTableContainer','outAgentsTableContainer','areaPerformanceContainer','dailyPerformanceContainer','companyPerformanceContainer','supervisorsTablesContainer'];
+            containers.forEach(id => document.getElementById(id).innerHTML = '');
+
+            // 1. ملخص المشرفين
+            let h1 = `<div class="report-container"><h2>Summary Table for All Supervisors</h2><table>
+                <tr><th>#</th><th>Supervisor</th><th>Successful</th><th>Unsuccessful</th><th>Total</th><th>Success Rate</th><th>Last Day Orders (${overallLastDate})</th></tr>`;
+            let tS=0, tU=0, tL=0, i=1;
+            Object.entries(dataObj.supervisors).sort((a,b)=>b[1].successful-a[1].successful).forEach(([sup, d])=>{
+                const tot = d.successful+d.unsuccessful;
+                const rate = tot ? (d.successful/tot*100).toFixed(2) : '0.00';
+                tS+=d.successful; tU+=d.unsuccessful; tL+=d.lastDayOrders;
+                h1 += `<tr><td>${i++}</td><td>${sup}</td><td>${d.successful}</td><td>${d.unsuccessful}</td><td>${tot}</td><td><div class="success-rate" style="--percentage:${rate}%">${rate}%</div></td><td class="${d.lastDayOrders===0?'ldo-zero':''}">${d.lastDayOrders}</td></tr>`;
+            });
+            const tTot = tS+tU, tRate = tTot ? (tS/tTot*100).toFixed(2) : '0.00';
+            h1 += `<tr class="total-row"><td colspan="2">Total</td><td>${tS}</td><td>${tU}</td><td>${tTot}</td><td><div class="success-rate" style="--percentage:${tRate}%">${tRate}%</div></td><td class="${tL===0?'ldo-zero':''}">${tL}</td></tr></table></div>`;
+            document.getElementById('summaryTableContainer').innerHTML = h1;
+
+            // 2. الهيكل الهرمي
+            let h2 = `<div class="report-container"><h2>Performance Report by City > Supervisor > Agent</h2>
+                <p style="text-align:center;color:#666;">Last working day: ${overallLastDate} | Total working days: ${totalWorkingDays}</p><table>
+                <tr><th>#</th><th>Level</th><th>Name</th><th>Successful</th><th>Unsuccessful</th><th>Total</th><th>Success Rate</th><th>Days zero from ${totalWorkingDays}</th><th>Last Day Orders</th></tr>`;
+            Object.entries(dataObj.hierarchical).sort((a,b)=>b[1].successful-a[1].successful).forEach(([city, c])=>{
+                if(c.agentCount===0) return;
+                const cTot=c.successful+c.unsuccessful, cRate=cTot?(c.successful/cTot*100).toFixed(2):'0.00', cZero=totalWorkingDays-c.dates.size;
+                h2 += `<tr class="city-row"><td></td><td>City</td><td>${city} (${c.agentCount} Agents)</td><td>${c.successful}</td><td>${c.unsuccessful}</td><td>${cTot}</td><td><div class="success-rate" style="--percentage:${cRate}%">${cRate}%</div></td><td class="${cZero===totalWorkingDays?'zero-days':''}">${cZero}</td><td class="${c.lastDayOrders===0?'ldo-zero':''}">${c.lastDayOrders}</td></tr>`;
+                
+                Object.entries(c.agents).sort((a,b)=>b[1].successful-a[1].successful).forEach(([sup, s])=>{
+                    if(s.agentCount===0) return;
+                    const sTot=s.successful+s.unsuccessful, sRate=sTot?(s.successful/sTot*100).toFixed(2):'0.00', sZero=totalWorkingDays-s.dates.size;
+                    h2 += `<tr class="supervisor-row"><td></td><td>Supervisor</td><td>${sup} (${s.agentCount} Agents)</td><td>${s.successful}</td><td>${s.unsuccessful}</td><td>${sTot}</td><td><div class="success-rate" style="--percentage:${sRate}%">${sRate}%</div></td><td class="${sZero===totalWorkingDays?'zero-days':''}">${sZero}</td><td class="${s.lastDayOrders===0?'ldo-zero':''}">${s.lastDayOrders}</td></tr>`;
+                    
+                    let ac=1;
+                    Object.entries(s.agents).sort((a,b)=>b[1].successful-a[1].successful).forEach(([name, a])=>{
+                        if(name.toLowerCase()===sup.toLowerCase() && (a.successful+a.unsuccessful)===0) return;
+                        const aTot=a.successful+a.unsuccessful, aRate=aTot?(a.successful/aTot*100).toFixed(2):'0.00', aZero=totalWorkingDays-a.dates.size;
+                        h2 += `<tr class="agent-row"><td>${ac++}</td><td>${getStyledCompanyTitleHtml(a.company)}</td><td>${getAgentNameHtml(name, a.company, sup)}</td><td>${a.successful}</td><td>${a.unsuccessful}</td><td>${aTot}</td><td><div class="success-rate" style="--percentage:${aRate}%">${aRate}%</div></td><td class="${aZero===totalWorkingDays?'zero-days':''}">${aZero}</td><td class="${a.lastDayOrders===0?'ldo-zero':''}">${a.lastDayOrders}</td></tr>`;
+                    });
+                });
+            });
+            h2 += `</table></div>`;
+            document.getElementById('hierarchicalTableContainer').innerHTML = h2;
+
+            // 3. جدول الستاف، الفريلانسر، الأوت
+            const renderFlat = (title, filterFn, containerId) => {
+                let html = `<div class="report-container"><h2>${title}</h2><table>
+                    <tr><th>#</th><th>Supervisor</th><th>Sales Man Name</th><th>Successful</th><th>Unsuccessful</th><th>Total</th><th>Success Rate</th><th>Days Without Sales</th><th>Last Day Orders</th></tr>`;
+                let idx=1, tS=0, tU=0, tD=0, tL=0;
+                const filtered = Object.values(dataObj.agents).filter(a => filterFn(a)).sort((a,b)=>b.successful-a.successful);
+                if(filtered.length===0) html += `<tr><td colspan="9">No data</td></tr>`;
+                filtered.forEach(a=>{
+                    const tot=a.successful+a.unsuccessful, rate=tot?(a.successful/tot*100).toFixed(2):'0.00', dws=totalWorkingDays-a.dates.size;
+                    if(shouldIncludeAgentInTotals(a.company, a.sm, a.supervisor)) { tS+=a.successful; tU+=a.unsuccessful; tD+=dws; tL+=a.lastDayOrders; }
+                    html += `<tr><td>${idx++}</td><td>${a.supervisor}</td><td>${getAgentNameHtml(a.sm, a.company, a.supervisor)}</td><td>${a.successful}</td><td>${a.unsuccessful}</td><td>${tot}</td><td><div class="success-rate" style="--percentage:${rate}%">${rate}%</div></td><td>${dws}</td><td class="${a.lastDayOrders===0?'ldo-zero':''}">${a.lastDayOrders}</td></tr>`;
+                });
+                const tTot=tS+tU, tRate=tTot?(tS/tTot*100).toFixed(2):'0.00';
+                if(filtered.length>0) html += `<tr class="total-row"><td colspan="3">Total</td><td>${tS}</td><td>${tU}</td><td>${tTot}</td><td><div class="success-rate" style="--percentage:${tRate}%">${tRate}%</div></td><td>${tD}</td><td class="${tL===0?'ldo-zero':''}">${tL}</td></tr>`;
+                html += `</table></div>`;
+                document.getElementById(containerId).innerHTML = html;
+            };
+            renderFlat('Table for All Sales Man - Sttaf Agents', a => (a.company||'').toLowerCase().includes('sttaf'), 'companyAgentsTableContainer');
+            renderFlat('Table for All Sales Man - Freelancers', a => (a.company||'').toLowerCase().includes('freelancer'), 'freelancersTableContainer');
+            renderFlat('Table for All Sales Man - OUT', a => (a.company||'').toLowerCase().includes('out'), 'outAgentsTableContainer');
+
+            // 4. أداء المناطق
+            let hArea = `<div class="report-container"><h2>Area Performance</h2><table><tr><th>#</th><th>Area</th><th>Successful</th><th>Unsuccessful</th><th>Total</th><th>Success Rate</th></tr>`;
+            let idxA=1, tSA=0, tUA=0;
+            Object.entries(dataObj.areas).sort((a,b)=>b[1].successful-a[1].successful).forEach(([area,d])=>{
+                const tot=d.successful+d.unsuccessful, rate=tot?(d.successful/tot*100).toFixed(2):'0.00';
+                tSA+=d.successful; tUA+=d.unsuccessful;
+                hArea += `<tr><td>${idxA++}</td><td>${area}</td><td>${d.successful}</td><td>${d.unsuccessful}</td><td>${tot}</td><td><div class="success-rate" style="--percentage:${rate}%">${rate}%</div></td></tr>`;
+            });
+            const tTotA=tSA+tUA, tRateA=tTotA?(tSA/tTotA*100).toFixed(2):'0.00';
+            hArea += `<tr class="total-row"><td colspan="2">Total</td><td>${tSA}</td><td>${tUA}</td><td>${tTotA}</td><td><div class="success-rate" style="--percentage:${tRateA}%">${tRateA}%</div></td></tr></table></div>`;
+            document.getElementById('areaPerformanceContainer').innerHTML = hArea;
+
+            // 5. الأداء اليومي
+            let hDaily = `<div class="report-container"><h2>Daily Performance</h2><table><tr><th>#</th><th>Date</th><th>Successful</th><th>Unsuccessful</th><th>Total</th><th>Success Rate</th></tr>`;
+            let idxD=1, tSD=0, tUD=0;
+            Object.entries(dataObj.dates).sort((a,b)=>new Date(a[0])-new Date(b[0])).forEach(([date,d])=>{
+                const tot=d.successful+d.unsuccessful, rate=tot?(d.successful/tot*100).toFixed(2):'0.00';
+                tSD+=d.successful; tUD+=d.unsuccessful;
+                hDaily += `<tr><td>${idxD++}</td><td>${date}</td><td>${d.successful}</td><td>${d.unsuccessful}</td><td>${tot}</td><td><div class="success-rate" style="--percentage:${rate}%">${rate}%</div></td></tr>`;
+            });
+            const tTotD=tSD+tUD, tRateD=tTotD?(tSD/tTotD*100).toFixed(2):'0.00';
+            hDaily += `<tr class="total-row"><td colspan="2">Total</td><td>${tSD}</td><td>${tUD}</td><td>${tTotD}</td><td><div class="success-rate" style="--percentage:${tRateD}%">${tRateD}%</div></td></tr></table></div>`;
+            document.getElementById('dailyPerformanceContainer').innerHTML = hDaily;
+
+            // 6. ملخص الشركة
+            let bestArea = Object.keys(dataObj.areas).sort((a,b)=>dataObj.areas[b].successful-dataObj.areas[a].successful)[0] || 'N/A';
+            let worstArea = Object.keys(dataObj.areas).sort((a,b)=>dataObj.areas[a].successful-dataObj.areas[b].successful)[0] || 'N/A';
+            let totalDaysWithoutSales = Object.values(dataObj.agents).reduce((sum, a) => sum + (totalWorkingDays - a.dates.size), 0);
+            let hComp = `<div class="report-container"><h2>Company Performance Overview</h2><table>
+                <tr><th>Metric</th><th>Value</th><th>Suggestions</th></tr>
+                <tr><td>Total Successful Orders</td><td>${tSD}</td><td>Focus on replicating successful strategies.</td></tr>
+                <tr><td>Total Unsuccessful Orders</td><td>${tUD}</td><td>Analyze reasons for failures.</td></tr>
+                <tr><td>Total Orders</td><td>${tTotD}</td><td>Set higher targets for next period.</td></tr>
+                <tr><td>Overall Success Rate</td><td>${tRateD}%</td><td>Aim to improve success rate by 5%.</td></tr>
+                <tr><td>Total Days Without Sales</td><td>${totalDaysWithoutSales}</td><td>Address gaps in daily performance.</td></tr>
+                <tr><td>Best Performing Area</td><td>${bestArea} (${dataObj.areas[bestArea]?.successful||0} successful)</td><td>Reward and replicate strategies.</td></tr>
+                <tr><td>Worst Performing Area</td><td>${worstArea} (${dataObj.areas[worstArea]?.successful||0} successful)</td><td>Provide support to improve.</td></tr>
+            </table></div>`;
+            document.getElementById('companyPerformanceContainer').innerHTML = hComp;
+
+            // 7. جداول المشرفين
+            let hSup = '';
+            Object.entries(dataObj.supervisors).sort((a,b)=>b[1].successful-a[1].successful).forEach(([sup, d])=>{
+                hSup += `<div class="report-container"><h2>Supervisor: ${sup}</h2><table>
+                    <tr><th>#</th><th>Sales Man Name</th><th>Successful</th><th>Unsuccessful</th><th>Total</th><th>Success Rate</th><th>Days Without Sales</th><th>Last Day Orders</th></tr>`;
+                let idxS=1, tSS=0, tUS=0, tDS=0, tLS=0;
+                d.agents.sort((a,b)=>b.successful-a.successful).forEach(a=>{
+                    const tot=a.successful+a.unsuccessful; if(tot===0 && a.sm.toLowerCase()===sup.toLowerCase()) return;
+                    const rate=tot?(a.successful/tot*100).toFixed(2):'0.00', dws=totalWorkingDays-a.dates.size;
+                    tSS+=a.successful; tUS+=a.unsuccessful; tDS+=dws; tLS+=a.lastDayOrders;
+                    hSup += `<tr><td>${idxS++}</td><td>${getAgentNameHtml(a.sm, a.company, a.supervisor)}</td><td>${a.successful}</td><td>${a.unsuccessful}</td><td>${tot}</td><td><div class="success-rate" style="--percentage:${rate}%">${rate}%</div></td><td>${dws}</td><td class="${a.lastDayOrders===0?'ldo-zero':''}">${a.lastDayOrders}</td></tr>`;
+                });
+                const tTotS=tSS+tUS, tRateS=tTotS?(tSS/tTotS*100).toFixed(2):'0.00';
+                hSup += `<tr class="total-row"><td colspan="2">Total</td><td>${tSS}</td><td>${tUS}</td><td>${tTotS}</td><td><div class="success-rate" style="--percentage:${tRateS}%">${tRateS}%</div></td><td>${tDS}</td><td class="${tLS===0?'ldo-zero':''}">${tLS}</td></tr></table></div>`;
+            });
+            document.getElementById('supervisorsTablesContainer').innerHTML = hSup;
+        }
+
+        // --- كود التحميل والتفاعل ---
+        document.getElementById('loadBtn').addEventListener('click', function() {
+            const file = document.getElementById('excelFile').files[0];
+            if (!file) { alert('من فضلك اختر ملف Excel أولاً.'); return; }
+            document.getElementById('loading').style.display = 'block';
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+                    
+                    if (!jsonData || jsonData.length === 0) { alert('الشيت فاضي!'); return; }
+                    
+                    // تحديث التاريخ في العنوان
+                    const now = new Date();
+                    document.getElementById('main-title').textContent = `FTTH-Mobily Performance Reports - ${now.toLocaleString('en-US', { month: 'long' })} ${now.getFullYear()}`;
+
+                    const processed = processData(jsonData);
+                    renderAll(processed);
+                    
+                    document.getElementById('loading').style.display = 'none';
+                } catch (error) {
+                    console.error(error);
+                    alert('حدث خطأ أثناء معالجة الملف.');
+                    document.getElementById('loading').style.display = 'none';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // كود التحميل
+        document.getElementById('downloadBtn').addEventListener('click', function() {
+            const containers = ['summaryTableContainer','hierarchicalTableContainer','companyAgentsTableContainer','freelancersTableContainer','outAgentsTableContainer','areaPerformanceContainer','dailyPerformanceContainer','companyPerformanceContainer','supervisorsTablesContainer'];
+            let reportContent = '';
+            let hasData = false;
+            containers.forEach(id => {
+                const el = document.getElementById(id);
+                if(el && el.innerHTML.trim() !== '') { reportContent += el.innerHTML; hasData = true; }
+            });
+            if(!hasData) { alert('من فضلك قم بإنشاء التقارير أولاً قبل التحميل!'); return; }
+
+            const title = document.getElementById('main-title').textContent;
+            const styleStr = document.querySelector('style').innerHTML;
+
+            const htmlContent = `
+                <!DOCTYPE html>
+                <html lang="ar" dir="rtl">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>${title}</title>
+                    <style>${styleStr}</style>
+                </head>
+                <body>
+                    <div style="max-width: 1200px; margin: 0 auto;">
+                        <h1>${title} (Exported)</h1>
+                        ${reportContent}
+                    </div>
+                </body>
+                </html>
+            `;
+
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'FTTH_Mobily_Reports.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    </script>
 </body>
 </html>
