@@ -1,0 +1,225 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>تقرير الأداء - FTTH Mobily</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+<style>
+body{font-family:Arial;background:#f4f4f4;padding:20px;margin:0}
+h1,h2{text-align:center;color:#333}
+.box{background:#fff;padding:20px;border-radius:8px;margin:0 auto 20px;max-width:1200px;text-align:center;box-shadow:0 2px 4px rgba(0,0,0,.1);overflow-x:auto}
+button{background:#4CAF50;color:#fff;border:0;padding:10px 20px;border-radius:5px;cursor:pointer;font-size:14px;margin:5px}
+button:hover{background:#3d8b40}
+table{width:100%;border-collapse:collapse;margin-top:15px;font-size:12px;white-space:nowrap}
+th,td{border:1px solid #ddd;padding:6px;text-align:center}
+th{background:#f5f5f5}
+.total{background:#e8f5e9;font-weight:bold}
+.rate{background:#66BB6A;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold}
+.ldo-zero{color:#e53935;font-weight:bold}
+#loading{display:none;color:#666;margin:10px}
+</style>
+</head>
+<body>
+<h1 id="title">تقرير الأداء - FTTH Mobily</h1>
+
+<div class="box">
+  <input type="file" id="file" accept=".xlsx,.xls">
+  <button onclick="loadData()">تحميل التقرير</button>
+  <div id="loading">⏳ جاري المعالجة...</div>
+</div>
+
+<div id="report"></div>
+
+<script>
+// تحويل تاريخ Excel (46296) لتاريخ عادي (2026-10-21)
+function excelDate(serial){
+  if(!serial) return null;
+  const d = new Date((serial - 25569) * 86400000);
+  return d.toISOString().split('T')[0];
+}
+
+function loadData(){
+  const f = document.getElementById('file').files[0];
+  if(!f){ alert('اختار ملف Excel الأول'); return; }
+  document.getElementById('loading').style.display='block';
+  
+  const r = new FileReader();
+  r.onload = e => {
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      
+      // قراءة الشيت الأول (sales)
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(sheet, {header:1});
+      
+      // البحث عن الأعمدة
+      const headers = data[0].map(h => String(h||'').trim());
+      const findCol = (name) => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
+      
+      const iName = findCol('Sales Man Name');
+      const iSup = findCol('Supervisor');
+      const iStatus = findCol('SEBIL UPDATE');
+      const iDate = findCol('Date');
+      const iCity = findCol('City');
+      const iComp = findCol('Company');
+      
+      if(iName < 0 || iStatus < 0 || iDate < 0){
+        alert('مش لاقي الأعمدة الأساسية: Sales Man Name / SEBIL UPDATE / Date');
+        document.getElementById('loading').style.display='none';
+        return;
+      }
+      
+      // جمع كل التواريخ
+      const allDates = new Set();
+      let lastDate = '';
+      data.slice(1).forEach(r => {
+        const d = excelDate(r[iDate]);
+        if(d){ allDates.add(d); if(d > lastDate) lastDate = d; }
+      });
+      
+      const totalDays = allDates.size;
+      
+      // تجميع البيانات
+      const supervisors = {};   // { supName: {success, fail, ldo, agents:{}, dates:Set} }
+      const companies = {};     // { compName: {success, fail, ldo} }
+      const cities = {};        // { cityName: {success, fail, ldo} }
+      
+      data.slice(1).forEach(r => {
+        const name = String(r[iName]||'').trim();
+        const sup = String(r[iSup]||'').trim();
+        const status = String(r[iStatus]||'').toLowerCase();
+        const date = excelDate(r[iDate]);
+        const city = String(r[iCity]||'').trim();
+        const comp = String(r[iComp]||'').trim() || 'N/A';
+        
+        if(!name || !sup) return;
+        
+        const isSuccess = status === 'applied';
+        const isLastDay = date === lastDate;
+        
+        // تجميع حسب المشرف
+        if(!supervisors[sup]) supervisors[sup] = {success:0, fail:0, ldo:0, dates:new Set(), agents:{}};
+        supervisors[sup].dates.add(date);
+        if(isSuccess) supervisors[sup].success++; else supervisors[sup].fail++;
+        if(isLastDay) supervisors[sup].ldo++;
+        
+        // تجميع حسب المندوب (داخل المشرف)
+        if(!supervisors[sup].agents[name]) supervisors[sup].agents[name] = {success:0, fail:0, ldo:0, dates:new Set(), comp:comp};
+        supervisors[sup].agents[name].dates.add(date);
+        if(isSuccess) supervisors[sup].agents[name].success++; else supervisors[sup].agents[name].fail++;
+        if(isLastDay) supervisors[sup].agents[name].ldo++;
+        
+        // تجميع حسب الشركة
+        if(!companies[comp]) companies[comp] = {success:0, fail:0, ldo:0};
+        if(isSuccess) companies[comp].success++; else companies[comp].fail++;
+        if(isLastDay) companies[comp].ldo++;
+        
+        // تجميع حسب المدينة
+        if(city){
+          if(!cities[city]) cities[city] = {success:0, fail:0, ldo:0};
+          if(isSuccess) cities[city].success++; else cities[city].fail++;
+          if(isLastDay) cities[city].ldo++;
+        }
+      });
+      
+      // بناء الجدول
+      let html = `<div class="box"><h2>📊 ملخص عام - آخر يوم: ${lastDate} | عدد أيام العمل: ${totalDays}</h2>
+      <table>
+        <tr>
+          <th>المقياس</th><th>القيمة</th>
+        </tr>
+        <tr><td>إجمالي المشرفين</td><td>${Object.keys(supervisors).length}</td></tr>
+        <tr><td>إجمالي المندوبين</td><td>${new Set(data.slice(1).map(r=>r[iName]).filter(Boolean)).size}</td></tr>
+        <tr><td>إجمالي الطلبات</td><td>${data.length-1}</td></tr>
+        <tr><td>آخر يوم عمل</td><td>${lastDate}</td></tr>
+        <tr><td>عدد أيام العمل</td><td>${totalDays}</td></tr>
+      </table></div>`;
+      
+      // جدول المشرفين
+      html += `<div class="box"><h2>📋 تقرير المشرفين</h2><table>
+        <tr><th>#</th><th>المشرف</th><th>عدد المندوبين</th><th>نجح</th><th>فشل</th><th>الإجمالي</th><th>نسبة النجاح</th><th>أيام بدون بيع</th><th>طلبات آخر يوم (${lastDate})</th></tr>`;
+      
+      let tS=0,tF=0,tL=0, idx=1;
+      Object.entries(supervisors).sort((a,b)=>b[1].success-a[1].success).forEach(([sup,d])=>{
+        const total = d.success + d.fail;
+        const rate = total ? (d.success/total*100).toFixed(1) : '0.00';
+        const zeroDays = totalDays - d.dates.size;
+        const agentCount = Object.keys(d.agents).length;
+        tS+=d.success; tF+=d.fail; tL+=d.ldo;
+        html += `<tr>
+          <td>${idx++}</td><td>${sup}</td><td>${agentCount}</td>
+          <td>${d.success}</td><td>${d.fail}</td><td>${total}</td>
+          <td><span class="rate">${rate}%</span></td>
+          <td>${zeroDays}</td>
+          <td class="${d.ldo===0?'ldo-zero':''}">${d.ldo}</td>
+        </tr>`;
+      });
+      
+      const tT = tS+tF;
+      const tR = tT ? (tS/tT*100).toFixed(1) : '0.00';
+      html += `<tr class="total">
+        <td colspan="3">الإجمالي</td>
+        <td>${tS}</td><td>${tF}</td><td>${tT}</td>
+        <td><span class="rate">${tR}%</span></td>
+        <td>—</td><td class="${tL===0?'ldo-zero':''}">${tL}</td>
+      </tr></table></div>`;
+      
+      // جدول الشركات
+      html += `<div class="box"><h2>🏢 تقرير الشركات</h2><table>
+        <tr><th>الشركة</th><th>نجح</th><th>فشل</th><th>الإجمالي</th><th>نسبة النجاح</th><th>آخر يوم</th></tr>`;
+      Object.entries(companies).sort((a,b)=>b[1].success-a[1].success).forEach(([comp,d])=>{
+        const total = d.success + d.fail;
+        const rate = total ? (d.success/total*100).toFixed(1) : '0.00';
+        html += `<tr><td>${comp}</td><td>${d.success}</td><td>${d.fail}</td><td>${total}</td><td><span class="rate">${rate}%</span></td><td>${d.ldo}</td></tr>`;
+      });
+      html += `</table></div>`;
+      
+      // جدول المدن
+      if(Object.keys(cities).length){
+        html += `<div class="box"><h2>🌍 تقرير المدن</h2><table>
+          <tr><th>المدينة</th><th>نجح</th><th>فشل</th><th>الإجمالي</th><th>نسبة النجاح</th></tr>`;
+        Object.entries(cities).sort((a,b)=>b[1].success-a[1].success).forEach(([city,d])=>{
+          const total = d.success + d.fail;
+          const rate = total ? (d.success/total*100).toFixed(1) : '0.00';
+          html += `<tr><td>${city}</td><td>${d.success}</td><td>${d.fail}</td><td>${total}</td><td><span class="rate">${rate}%</span></td></tr>`;
+        });
+        html += `</table></div>`;
+      }
+      
+      // جدول كل مشرف ومندوبيه
+      Object.entries(supervisors).sort((a,b)=>b[1].success-a[1].success).forEach(([sup,d])=>{
+        html += `<div class="box"><h2>👤 المشرف: ${sup}</h2><table>
+          <tr><th>#</th><th>المندوب</th><th>الشركة</th><th>نجح</th><th>فشل</th><th>الإجمالي</th><th>نسبة النجاح</th><th>أيام بدون بيع</th><th>آخر يوم</th></tr>`;
+        
+        let i=1;
+        Object.entries(d.agents).sort((a,b)=>b[1].success-a[1].success).forEach(([name,a])=>{
+          const total = a.success + a.fail;
+          const rate = total ? (a.success/total*100).toFixed(1) : '0.00';
+          const zeroDays = totalDays - a.dates.size;
+          html += `<tr>
+            <td>${i++}</td><td>${name}</td><td>${a.comp}</td>
+            <td>${a.success}</td><td>${a.fail}</td><td>${total}</td>
+            <td><span class="rate">${rate}%</span></td>
+            <td>${zeroDays}</td>
+            <td class="${a.ldo===0?'ldo-zero':''}">${a.ldo}</td>
+          </tr>`;
+        });
+        html += `</table></div>`;
+      });
+      
+      document.getElementById('report').innerHTML = html;
+      document.getElementById('title').textContent = `تقرير الأداء - ${lastDate}`;
+      document.getElementById('loading').style.display='none';
+      
+    }catch(err){
+      alert('خطأ: ' + err.message);
+      console.error(err);
+      document.getElementById('loading').style.display='none';
+    }
+  };
+  r.readAsArrayBuffer(f);
+}
+</script>
+</body>
+</html>
